@@ -1,50 +1,53 @@
 # LINK FOR SCRAPING: https://discord.com/api/v10/applications/detectable
 import sqlite3 as sq
 import requests as req
-
-# from bs4 import BeautifulSoup   <- Black deleting this import as unused
 from loguru import logger
-
-# Request to link
-paramaters = {"key1": "value1", "key2": "value2"}
-response = req.get(
-    "https://discord.com/api/v10/applications/detectable", params=paramaters
-)
-
-if response.status_code != 200:
-    logger.critical(f"Discord sent error! Status code is: \n{response.status_code}")
-    response.raise_for_status()
+from pathlib import Path
 
 
-data = response.json()
-print("Data type:", type(data))
-print(len(data))
-first_app = data[0]  # First detectable application
-game_id = first_app["id"]
-game_name = first_app.get("name") or first_app["executables"][0]["name"].replace(
-    ".exe", ""
-)
-print(f"ID: {game_id}")
-print(f"Game: {game_name}")
+DISCORD_API = "https://discord.com/api/v10/applications/detectable"
+BASE_PATH = Path(__file__).resolve().parent
+DB_PATH = BASE_PATH.parent / "database" / "games_info.db"
 
 
-# Database interaction
-db = sq.connect("../database/games_info.db")
-cursor = db.cursor()
+def fetch_games() -> list:
+    response = req.get(DISCORD_API)
+    if response.status_code != 200:
+        logger.critical(f"Discord sent error! Status code: {response.status_code}")
+        response.raise_for_status()
+    data = response.json()
+    logger.info(f"Fetched {len(data)} games")
+    return data
 
-cursor.execute(
-    """
-    INSERT OR IGNORE INTO games VALUES (?, ?, ?)
-    """,
-    (game_name, game_id, 10),
-)
-db.commit()
 
-cursor.execute(
-    """
-SELECT * FROM games
-"""
-)
-print(cursor.fetchall())
+def parse_game(app: dict) -> tuple:
+    game_id = app["id"]
+    game_name = app.get("name") or app["executables"][0]["name"].replace(".exe", "")
+    return game_name, game_id
 
-db.close()
+
+def sync_db(data: list, db_path=DB_PATH) -> int:
+    db = sq.connect(db_path)
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM games")
+    for app in data:
+        game_name, game_id = parse_game(app)
+        cursor.execute(
+            "INSERT OR IGNORE INTO games VALUES (?, ?)", (game_name, game_id)
+        )
+    db.commit()
+    cursor.execute("SELECT COUNT(*) FROM games")
+    total = cursor.fetchone()[0]
+    db.close()
+    logger.success(f"Synced {total} games to DB")
+    return total
+
+
+def sync_games(db_path: str = DB_PATH) -> None:
+    data = fetch_games()
+    total = sync_db(data, db_path)
+    logger.info(f"Total in DB: {total}")
+
+
+if __name__ == "__main__":
+    sync_games()
