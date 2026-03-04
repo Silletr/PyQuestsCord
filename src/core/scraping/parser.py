@@ -21,8 +21,23 @@ def fetch_games() -> list:
 
 
 def parse_game(app: dict) -> tuple:
-    game_id = app["id"]
-    game_name = app.get("name") or app["executables"][0]["name"].replace(".exe", "")
+    if not isinstance(app, dict):
+        logger.warning(f"Skipping non-dict app: {app!r}")
+        return None, None
+
+    game_id = app.get("id")
+    if not game_id:
+        logger.warning(f"Skipping app without id: {app}")
+        return None, None
+
+    game_name = app.get("name")
+    if not game_name:
+        if app.get("executables") and app["executables"]:
+            game_name = app["executables"][0]["name"].replace(".exe", "")
+        else:
+            logger.warning(f"Skipping app without name or executables: {app}")
+            return None, None
+
     return game_name, game_id
 
 
@@ -30,24 +45,33 @@ def sync_db(data: list, db_path=DB_PATH) -> int:
     db = sq.connect(db_path)
     cursor = db.cursor()
     cursor.execute("DELETE FROM games")
+
+    synced = 0
     for app in data:
         game_name, game_id = parse_game(app)
+        if game_name is None or game_id is None:
+            continue
+
         cursor.execute(
             "INSERT OR IGNORE INTO games VALUES (?, ?)", (game_name, game_id)
         )
+        synced += 1
+
     db.commit()
     cursor.execute("SELECT COUNT(*) FROM games")
     total = cursor.fetchone()[0]
     db.close()
-    logger.success(f"Synced {total} games to DB")
+    logger.success(f"Synced {synced} games to DB (total in DB: {total})")
     return total
 
 
-def sync_games(db_path: str = DB_PATH) -> None:
-    data = fetch_games()
-    total = sync_db(data, db_path)
-    logger.info(f"Total in DB: {total}")
-
-
-if __name__ == "__main__":
-    sync_games()
+def find_games_by_name(name: str, db_path=DB_PATH) -> list[tuple[str, str]]:
+    db = sq.connect(db_path)
+    cursor = db.cursor()
+    cursor.execute(
+        "SELECT game_name, game_rpc_id FROM games WHERE game_name LIKE ? ORDER BY game_name",
+        (f"%{name}%",),
+    )
+    matches = cursor.fetchall()
+    db.close()
+    return matches
