@@ -36,7 +36,17 @@ def parse_game(app: dict) -> tuple:
 def sync_db(data: list, db_path=DB_PATH) -> int:
     db = sq.connect(db_path)
     cursor = db.cursor()
-    cursor.execute("DELETE FROM games")
+
+    # schema stuff BEFORE the loop
+    cursor.execute("DROP TABLE IF EXISTS games")
+    cursor.execute(
+        """
+        CREATE TABLE games (
+            game_name TEXT NOT NULL UNIQUE,
+            game_executable TEXT NOT NULL
+        )
+    """
+    )
 
     synced = 0
     for app in data:
@@ -46,7 +56,7 @@ def sync_db(data: list, db_path=DB_PATH) -> int:
         cursor.execute(
             "INSERT OR IGNORE INTO games VALUES (?, ?)", (game_name, game_executable)
         )
-    synced += 1
+        synced += 1  # ← inside loop
 
     db.commit()
     cursor.execute("SELECT COUNT(*) FROM games")
@@ -60,7 +70,7 @@ def find_games_by_name(name: str, db_path=DB_PATH) -> list[tuple[str, str]]:
     db = sq.connect(db_path)
     cursor = db.cursor()
     cursor.execute(
-        "SELECT game_name, game_executable FROM games WHERE game_name LIKE ? ORDER BY game_name",
+        "SELECT game_name, game_executable FROM games WHERE game_name LIKE ?",
         (f"%{name}%",),
     )
     matches = cursor.fetchall()
