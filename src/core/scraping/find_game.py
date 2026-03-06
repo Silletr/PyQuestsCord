@@ -1,14 +1,9 @@
-from parser import DB_PATH
-import sqlite3 as sq
-
-conn = sq.connect(DB_PATH)
-cursor = conn.cursor()
+from parser import find_games_by_name
 
 game_name = input("Enter the game name (corresponding correct name): ")
-cursor.execute("SELECT * FROM games WHERE game_name LIKE ?", (f"%{game_name}%",))
-
-rows = cursor.fetchall()
-
-print(rows)
-
-conn.close()
+results = find_games_by_name(game_name)
+if results:
+    for name, exe in results:
+        print(f"{name} → {exe}")
+else:
+    print("No games found")

@@ -13,8 +13,7 @@ DB_PATH = BASE_PATH.parent / "database" / "games_info.db"
 def fetch_games() -> list:
     response = req.get(DISCORD_API)
     if response.status_code != 200:
-        logger.critical(f"Discord sent error! Status code: {
-                        response.status_code}")
+        logger.critical(f"Discord sent error! Status code: {response.status_code}")
         response.raise_for_status()
     data = response.json()
     logger.info(f"Fetched {len(data)} games")
@@ -29,8 +28,7 @@ def parse_game(app: dict) -> tuple:
         return game_name, "no_executables"
 
     first_exec = executables[0]
-    game_executable = first_exec.get(
-        "name", "unknown") if first_exec else "no_name"
+    game_executable = first_exec.get("name", "unknown") if first_exec else "no_name"
 
     return game_name or game_executable.replace(".exe", ""), game_executable
 
@@ -38,20 +36,27 @@ def parse_game(app: dict) -> tuple:
 def sync_db(data: list, db_path=DB_PATH) -> int:
     db = sq.connect(db_path)
     cursor = db.cursor()
-    cursor.execute("DELETE FROM games")
+
+    # schema stuff BEFORE the loop
+    cursor.execute("DROP TABLE IF EXISTS games")
+    cursor.execute(
+        """
+        CREATE TABLE games (
+            game_name TEXT NOT NULL UNIQUE,
+            game_executable TEXT NOT NULL
+        )
+    """
+    )
 
     synced = 0
     for app in data:
-        game_name, game_id = parse_game(app)
-        if game_name is None or game_id is None:
-            continue
-
         game_name, game_executable = parse_game(app)
+        if game_name is None or game_executable is None:
+            continue
         cursor.execute(
-            "INSERT OR IGNORE INTO games VALUES (?, ?)", (
-                game_name, game_executable)
+            "INSERT OR IGNORE INTO games VALUES (?, ?)", (game_name, game_executable)
         )
-        synced += 1
+        synced += 1  # ← inside loop
 
     db.commit()
     cursor.execute("SELECT COUNT(*) FROM games")
@@ -65,7 +70,7 @@ def find_games_by_name(name: str, db_path=DB_PATH) -> list[tuple[str, str]]:
     db = sq.connect(db_path)
     cursor = db.cursor()
     cursor.execute(
-        "SELECT game_name, game_rpc_id FROM games WHERE game_name LIKE ? ORDER BY game_name",
+        "SELECT game_name, game_executable FROM games WHERE game_name LIKE ?",
         (f"%{name}%",),
     )
     matches = cursor.fetchall()
